@@ -1,5 +1,5 @@
 ##--------------Install Dependencies------------------
-# these packages are required for migration_simulation.R and/or migration_analysis.qmd
+# these packages are required for the R scripts in the LAP-CellposeSAM_migration_analysis repository.
 
 packages <- c("tidyverse",'readr', "snakecase", "stringr", "lme4", "RColorBrewer","viridis", "ggrepel", "patchwork", "gganimate",
               "bestNormalize", "RNOmni", "lmerTest", "car", "emmeans", "ggsignif", "factoextra")
