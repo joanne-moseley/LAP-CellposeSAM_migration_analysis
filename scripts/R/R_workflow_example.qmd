@@ -1,0 +1,335 @@
+---
+title: "R Workflow Example"
+format: html
+editor: visual
+---
+
+This script provides an example implementation of the R functions defined in this repository. It loads the cell migration data output from the LapTrack/Cellpose-SAM Python pipeline and uses it to analyse cell migration and plot the results. The data used here have been simulated for the purpose of this example workflow.
+
+## Set up environment
+
+Load packages and specify parameters for the analysis. Ensure that packages have been installed using *install_packages.R* and that functions have been defined by running *define_functions.R*.
+
+```{r, load packages, include=FALSE}
+#| echo: false
+
+# specify packages to load
+packages <- c('tidyverse', 'readr', 'snakecase','stringr','lme4','RColorBrewer','ggrepel','patchwork','gganimate','factoextra', 'lmerTest', 'bestNormalize', 'car', 'emmeans', 'RNOmni', 'ggsignif')
+
+# load packages
+invisible(lapply(packages, library, character.only=TRUE))
+```
+
+Now specify parameters for the analysis and load the data.
+
+```{r, specify parameters}
+#| echo: false
+
+# data: tracking data output from [insert script name here]
+# experiment plan: experimental design in the format provided
+# metadata: imaging metadata in the format provided
+
+data_path             <- "../../data/R_data"
+exp_plan_path         <- "../../data/R_data"
+metadata_path         <- "../../data/R_data"
+
+# specify treatment condition levels
+## NOTE: the order of treatment conditions in treatment_levels_raw and treatment_levels_clean MUST match, otherwise clean_and_normalise_data will return mislabeled data 
+treatment_levels_raw <- c("Untreated","VehicleControl","1mg_Dose","2.5mg_Dose","5mg_Dose","10mg_Dose") # these are the labels in the original data
+
+treatment_levels_clean <- c("UT","ctrl","dose_1mg","dose_2.5mg","dose_5mg","dose_10mg") # these are the labels in the desired format
+
+treatment_levels_filt <- c("UT","ctrl","dose_1mg","dose_2.5mg","dose_5mg","dose_10mg") # these are the labels in the desired format, with only the levels of interest (may be the same as _clean if all features are of interest)
+```
+
+```{r, load data files}
+# load raw data, with experimental information from experiment plan and metadata files
+mig_raw <- load_data(experiments=c('exp_1', 'exp_2', 'exp_3'))
+mig_raw
+```
+If desired, simulated Brownian and correlated random walks can be simulated for comparison to the experimental tracking data.
+
+```{r, simulations}
+sim_tracks <- bind_rows(
+  # Brownian
+  simulate_brownian(),
+  # persistent (CRW)
+  simulate_crw(label = "Persistent (CRW)"),
+  # reduced D (motility)
+  simulate_crw(D=0.003 * 0.2, label = "Inhibited Motility"),
+  # reduced kappa (persistence)
+  simulate_crw(kappa = 0.3, label = "Inhibited Persistence"),
+  # reduced D and kappa
+  simulate_crw(D=0.003 * 0.2, kappa = 0.3, label = "Inhibited Persistence & Motility")
+)
+
+# specify levels for the simulations
+sim_tracks$condition <- factor(sim_tracks$condition, levels = c(
+  "Brownian",
+  "Persistent (CRW)",
+  "Inhibited Motility",
+  "Inhibited Persistence",
+  "Inhibited Persistence & Motility"))
+
+# create global track IDs
+sim_tracks <- sim_tracks %>%
+  arrange(condition, track_id, frame) %>%
+  group_by(global_ID = consecutive_id(condition, track_id))
+
+### the simulated tracks can now be analysed and plotted, then compared to the real tracking data
+```
+
+Now clean, normalise, and filter the tracking data.
+
+```{r, pre-process tracking data}
+# clean and normalise tracking data
+mig_norm <- clean_and_normalise_data()
+mig_norm
+
+# filter tracks by length
+# NB: no tracks are filtered out here as the simulated tracks are all the expected length
+mig_filt <- filter_data(min_length=30)
+mig_filt
+```
+
+The tracks can be plotted for qualitative comparison of migration across conditions.
+
+```{r, visualise cell tracks}
+# plot cell tracks
+plot_cell_tracks(conditions=treatment_levels_filt, labels=labels, rows=3)
+
+# make density plots
+plot_cell_track_density(conditions=treatment_levels_filt, labels=labels, rows=3)
+```
+
+If desired, a subset of the tracks can also be animated into a .gif using gganimate.
+
+```{r, animate tracks}
+# this may take a very long time to render, depending on the number of conditions, number of cells, and track length
+animate_tracks(conditions=treatment_levels_filt, labels=labels, ntracks=100, rows=3)
+```
+
+## Analyse migration features
+
+The tracking dataset is now ready for analysis. Start by analysing per-track (trackwise) measures of displacement and straightness.
+
+```{r, get trackwise migration features}
+mig_features <- get_trackwise_features()
+mig_features
+```
+
+Next, create linear models for each of four key trackwise migration features: total displacement, net displacement, maximum displacement, and meandering index. This will allow for pairwise comparisons between conditions, the significance of which can be shown on boxplots.
+
+```{r, create models for migration feature boxplots}
+# create linear model
+tot_d_lmm <- get_linear_mixed_model(feature='tot_d')
+
+# check assumptions of the model
+check_model_assumptions(linear_model=tot_d_lmm) # model does not meet assumptions
+
+# if the model does not fit well, can try normalising the data to improve normality
+# bestNormalize finds the most effective transformation
+BN_tot <- bestNormalize(mig_features$tot_d)
+BN_tot
+
+# bestNormalize identified orderNorm (inverse-normal) as the best transformation
+#mig_features$tot_d_bc <- predict(BN_tot) # to use the transformation identified by bestNormalize
+mig_features$tot_d_inv <- RankNorm(mig_features$tot_d) # to apply inverse-normal transformation
+
+# try fitting a model with the transformed data and checking the assumptions
+tot_d_transform_lmm <- get_linear_mixed_model(feature='tot_d_inv')
+check_model_assumptions(linear_model=tot_d_transform_lmm)
+# the model using the transformed data fits much better
+
+# pairs of treatment conditions to compare for the migration feature boxplots
+contrasts <- c('ctrl - dose_5mg', 'ctrl - dose_10mg')
+
+# get post-hoc comparisons
+tot_d_pairs <- get_posthoc_comparisons(model=tot_d_transform_lmm, contrasts_to_plot = contrasts)
+tot_d_pairs$table
+```
+
+```{r, get boxplot data for net displacement}
+# create linear model
+net_d_lmm <- get_linear_mixed_model(feature='net_d')
+
+# check assumptions of the model
+check_model_assumptions(linear_model=net_d_lmm) # model does not meet assumptions
+
+# use bestNormalize to identify the most effective transformation
+BN_net <- bestNormalize(mig_features$net_d)
+BN_net
+
+# again bestNormalize identified asinh(x) transformation as best
+# but RankNorm (inverse-normal) is also effective and more commonly used
+mig_features$net_d_inv <- RankNorm(mig_features$net_d) # to apply inverse-normal transformation
+
+# try fitting a model with the transformed data and checking the assumptions
+net_d_transform_lmm <- get_linear_mixed_model(feature='net_d_inv')
+check_model_assumptions(linear_model=net_d_transform_lmm)
+# the model using the transformed data fits much better
+
+# get post-hoc comparisons
+net_d_pairs <- get_posthoc_comparisons(model=net_d_transform_lmm, contrasts_to_plot = contrasts)
+net_d_pairs$table
+```
+
+```{r, get boxplot data for maximum displacement}
+# create linear model
+max_d_lmm <- get_linear_mixed_model(feature='max_d')
+
+# check assumptions of the model
+check_model_assumptions(linear_model = max_d_lmm) # model does not meet assumptions
+
+# use bestNormalize to identify the most effective transformation
+BN_max <- bestNormalize(mig_features$max_d)
+BN_max
+
+# bestNormalize identified orderNorm (inverse-normal) transformation as best
+# could also choose inverse-normal transformation here to match the other features
+mig_features$max_d_inv <- RankNorm(mig_features$max_d) # to apply inverse-normal transformation
+
+# try fitting a model with the transformed data and checking the assumptions
+max_d_transform_lmm <- get_linear_mixed_model(feature='max_d_inv')
+check_model_assumptions(linear_model=max_d_transform_lmm)
+# the model using the transformed data fits much better
+
+# get post-hoc comparisons
+max_d_pairs <- get_posthoc_comparisons(model=max_d_transform_lmm, contrasts_to_plot = contrasts)
+max_d_pairs$table
+```
+
+```{r, get boxplot data for meandering index}
+# create linear model
+meand_lmm <- get_linear_mixed_model(feature='meand_index')
+
+# check assumptions of the model
+check_model_assumptions(linear_model = meand_lmm) # model does not meet assumptions
+
+# use bestNormalize to identify the most effective transformation
+BN_meand <- bestNormalize(mig_features$meand_index)
+BN_meand
+
+# bestNormalize identified log10 transformation as best
+mig_features$meand_log <- log10(mig_features$meand_index) # to apply log10 transformation
+
+# try fitting a model with the transformed data and checking the assumptions
+meand_transform_lmm <- get_linear_mixed_model(feature='meand_log')
+check_model_assumptions(linear_model=meand_transform_lmm)
+# the model using the transformed data fits much better
+
+# get post-hoc comparisons
+meand_pairs <- get_posthoc_comparisons(model=meand_transform_lmm, contrasts_to_plot = contrasts)
+meand_pairs$table
+```
+
+Now that the linear models have been created for each feature, create the boxplots and the 4-feature figure panel.
+
+```{r}
+# specify readable labels for the plots (if not already the same as treatment_levels_filt)
+labels = c(UT = "Untreated",
+           ctrl = "(-)",
+           dose_1mg = "1mg",
+           dose_2.5mg = "2.5mg",
+           dose_5mg = "5mg",
+           dose_10mg = "10mg")
+
+# total displacement
+tot_d_plot <- make_feature_boxplot(model=tot_d_transform_lmm, data=mig_features, labels=labels,
+                                      feature='tot_d_inv', title='Total Displacement', 
+                                      y_label='Inverse-normal transformed total displacement (µm)',
+                                      contrasts_to_plot = contrasts)
+
+# net displacement
+net_d_plot <- make_feature_boxplot(model=net_d_transform_lmm, data=mig_features, labels=labels,
+                                      feature='net_d_inv', title='Net Displacement', 
+                                      y_label='Inverse-normal transformed net displacement (µm)',
+                                      contrasts_to_plot = contrasts)
+
+# maximum displacement
+max_d_plot <- make_feature_boxplot(model=max_d_transform_lmm, data=mig_features, labels=labels,
+                                      feature='max_d_inv', title='Maximum Displacement', 
+                                      y_label='Inverse-normal transformed maximum displacement (µm)',
+                                      contrasts_to_plot = contrasts)
+
+# meandering index
+meand_plot <- make_feature_boxplot(model=meand_transform_lmm, data=mig_features, labels=labels,
+                                      feature='meand_log', title='Meandering Index', 
+                                      y_label='Log10 transformed meandering index',
+                                      contrasts_to_plot = contrasts)
+
+# assemble the plots into a 4-panel composite figure
+make_migration_boxplot_figure()
+```
+
+## MSD modelling
+
+Next perform ensemble lag-time mean-squared displacement modelling to compare the diffusivity of cells in each treatment condition to Brownian motion.
+
+```{r, MSD modelling}
+# get MSD for each track (this may take some time)
+msd_per_track <- get_msd_per_track()
+
+# compute ensemble lag-time MSD for all cells in a treatment condition
+msd_ensemble <- get_ensemble_msd()
+
+# then extract the model coefficients (D and alpha) for each condition
+model_coeffs <- ensemble_msd_fit()
+model_coeffs
+
+# repeat for each experiment seperately
+# so that we can get the error for each coefficient (D and alpha)
+msd_ensemble_by_experiment <- get_ensemble_msd_by_experiment()
+model_coeffs_by_experiment <- ensemble_MSD_fit_by_experiment()
+alpha_summ_stats <- summarise_alpha()
+alpha_summ_stats
+
+# summarise the MSD model coefficients and previously computed migration features
+mig_features_summ <- summarise_migration_features(msd_coeffs = model_coeffs_by_experiment)
+mig_features_summ
+```
+
+The MSD vs lag time and anomalous diffusion exponent can be plotted seperately and combined into a figure panel.
+
+```{r, visualise MSD and alpha}
+plot_MSD_vs_lag_time(palette='sequential', labels=labels)
+plot_alpha(labels=labels)
+  
+plot_alpha_and_msd_panel(palette='sequential', labels=labels)
+```
+
+Finally, a PCA can be constructed for dimensionality reduction using both the migration feature data and the MSD model coefficients.
+
+```{r, PCA with MSD coeffs}
+# construct PCA
+pca_results <- get_pca()
+
+# understand explained variance
+plot_pca_scree()
+
+# understand which features contribute to each PC
+plot_pca_contribution(axis=1) # PC1
+plot_pca_contribution(axis=2) # PC2
+plot_pca_biplot_variables()
+
+# visualise samples relative to the PCs
+plot_pca_scatter(palette='sequential', labels=labels)
+```
+If preferred, a PCA can be constructed using all trackwise features (excluding D and alpha, as they are modelled per-experiment).
+
+```{r, PCA with just trackwise migration features}
+# construct PCA
+pca_results <- get_pca(data=mig_features,
+                       features=c('net_d','tot_d','max_d','meand_index'))
+
+# understand explained variance
+plot_pca_scree()
+
+# understand which features contribute to each PC
+plot_pca_contribution(axis=1) # PC1
+plot_pca_contribution(axis=2) # PC2
+plot_pca_biplot_variables()
+
+# visualise samples relative to the PCs
+plot_pca_scatter(palette='sequential', labels=labels, name='PCA_scatter_mig_features.png')
+```
