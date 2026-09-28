@@ -1,0 +1,20 @@
+name: tracking_gpu
+channels:
+  - pytorch
+  - nvidia
+  - conda-forge
+  - defaults
+dependencies:
+  - python==3.11
+  - numpy
+  - pandas
+  - matplotlib
+  - scipy
+  - cellpose
+  - tifffile
+  - tqdm
+  - tensorflow
+  - pytorch=2.4.0=py3.11_cuda12.4_cudnn9.1.0_0
+  - pytorch-cuda=12.4
+  - scikit-image
+  - laptrack
