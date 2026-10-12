@@ -42,9 +42,21 @@ treatment_levels_clean <- c("UT","ctrl","dose_1mg","dose_2.5mg","dose_5mg","dose
 treatment_levels_filt <- c("UT","ctrl","dose_1mg","dose_2.5mg","dose_5mg","dose_10mg") # these are the labels in the desired format, with only the levels of interest (may be the same as _clean if all features are of interest)
 ```
 
+```{r}
+# list names of the experiment plan files, so they can be mapped to experiment names
+find_exp_plan_files()
+```
+
 ```{r, load data files}
+# map experiment plan file names to experiment names so they can be assigned correctly 
+experiment_by_file <- c(
+  "example_exp_1_exp_plan.csv" = "exp_1",
+  "example_exp_2_exp_plan.csv" = "exp_2",
+  "example_exp_3_exp_plan.csv" = "exp_3"
+  )
+
 # load raw data, with experimental information from experiment plan and metadata files
-mig_raw <- load_data(experiments=c('exp_1', 'exp_2', 'exp_3'))
+mig_raw <- load_data()
 mig_raw
 ```
 If desired, simulated Brownian and correlated random walks can be simulated for comparison to the experimental tracking data.
@@ -160,8 +172,7 @@ check_model_assumptions(linear_model=net_d_lmm) # model does not meet assumption
 BN_net <- bestNormalize(mig_features$net_d)
 BN_net
 
-# again bestNormalize identified asinh(x) transformation as best
-# but RankNorm (inverse-normal) is also effective and more commonly used
+# bestNormalize did not identify RankNorm (inverse-normal) as best but it is also effective and more commonly used
 mig_features$net_d_inv <- RankNorm(mig_features$net_d) # to apply inverse-normal transformation
 
 # try fitting a model with the transformed data and checking the assumptions
@@ -210,11 +221,11 @@ check_model_assumptions(linear_model = meand_lmm) # model does not meet assumpti
 BN_meand <- bestNormalize(mig_features$meand_index)
 BN_meand
 
-# bestNormalize identified log10 transformation as best
-mig_features$meand_log <- log10(mig_features$meand_index) # to apply log10 transformation
+# bestNormalize did not identify RankNorm (inverse-normal) as best but it is also effective and more commonly used
+mig_features$meand_inv <- RankNorm(mig_features$meand_index) # to apply inverse-normal transformation
 
 # try fitting a model with the transformed data and checking the assumptions
-meand_transform_lmm <- get_linear_mixed_model(feature='meand_log')
+meand_transform_lmm <- get_linear_mixed_model(feature='meand_inv')
 check_model_assumptions(linear_model=meand_transform_lmm)
 # the model using the transformed data fits much better
 
@@ -254,8 +265,8 @@ max_d_plot <- make_feature_boxplot(model=max_d_transform_lmm, data=mig_features,
 
 # meandering index
 meand_plot <- make_feature_boxplot(model=meand_transform_lmm, data=mig_features, labels=labels,
-                                      feature='meand_log', title='Meandering Index', 
-                                      y_label='Log10 transformed meandering index',
+                                      feature='meand_inv', title='Meandering Index', 
+                                      y_label='Inverse-normal transformed meandering index',
                                       contrasts_to_plot = contrasts)
 
 # assemble the plots into a 4-panel composite figure

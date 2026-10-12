@@ -29,7 +29,7 @@ find_exp_plan_files <- function(path=exp_plan_path, keyword='exp_plan', recursiv
     cat('Experiment plan files found:\n', paste(exp_plan_files, collapse = "\n"), "\n\n", sep = "")
   }
   
-  return(exp_plan_files)
+  return(invisible(exp_plan_files))
 }
 
 #### define helper function to find metadata files
@@ -97,45 +97,52 @@ find_data_files <- function(path=data_path, keyword='combined_tracks', recursive
 
 # files: optional, defaults to NULL. If NULL, will use find_exp_plan_files to search for the files.
 # path: optional, defaults to exp_plan_path. The directory to find experiment plan files in.
-# experiments: optional, defaults to unique experiments found in the metadata file (this requires that load_metadata has been run first). Can also be specified manually as a list.
+# experiments: optional, defaults to experiment_by_file. A list of filename-experiment name mappings.
 # keyword: optional, defaults to 'exp_plan'. Keyword to use if searching for the files.
 # recursive: optional, defaults to FALSE. If TRUE, searches recursively inside the directory specified.
 
-load_exp_plan <- function(files=NULL, path=exp_plan_path, experiments=unique(metadata$experiment),
+# NB: experiments must be a list of file name-experiment name mappings in the format "exp_name_exp_plan.csv" = "exp_name"
+
+load_exp_plan <- function(files=NULL, path=exp_plan_path, experiments=experiment_by_file,
                           keyword='exp_plan', recursive=FALSE) {
   # make sure path exists
   if (!dir.exists(path)) {
-    stop("Directory does not exist: ", path)
-  }
+    stop("Directory does not exist: ", path)}
   
   if (missing(files)) {
-    files <- find_exp_plan_files(path, keyword, recursive)
-  }
+    files <- find_exp_plan_files(path, keyword, recursive)}
   
-  # initiate empty dataframe to import the experiment plans into
-  exp_plan <- data.frame(
-    replicate_name = character(),
-    imgJ_id = integer(),
-    Condition = character(),
-    experiment = character()
-  )
+  if (is.null(names(experiments)) || any(names(experiments) == "")) {
+    stop("experiments must be a named character vector with filenames as names.")}
   
-  # import the experiment plan files and merge them
-  for (i in seq_along(files)) {
-    # get the data from the file
-    df <- read_csv(file.path(path, files[i]), show_col_types = FALSE)
-    df$experiment <- experiments[[i]]
+  unknown_files <- setdiff(files, names(experiments))
+  
+  if (length(unknown_files) > 0) {
+    stop("No experiment mapping was supplied for: ",
+         paste(unknown_files, collapse = ", "))}
+  
+  missing_files <- setdiff(names(experiments), files)
+  
+  if (length(missing_files) > 0) {
+    warning("Experiment mappings were supplied for files not being loaded: ",
+            paste(missing_files, collapse = ", "))}
+  
+  exp_plan <- purrr::map_dfr(files, function(file) {
+    file_path <- file.path(path, file)
     
-    # merge into a single experiment plan file
-    exp_plan <- bind_rows(exp_plan, df, .id=NULL)
-  }
+    if (!file.exists(file_path)) {
+      stop("File does not exist: ", file_path)}
     
-  # make sure column names are in snakecase for readability
+    df <- readr::read_csv(file_path, show_col_types = FALSE)
+    
+    df$experiment <- unname(experiments[[file]])
+    
+    df
+    })
+  
   exp_plan <- exp_plan %>%
-    rename_with(to_snake_case)
-
-  # remove duplicate entries
-  exp_plan <- unique(exp_plan[c('experiment', 'replicate_name', 'condition')])
+    rename_with(to_snake_case) %>%
+    distinct(replicate_name, condition, experiment)
   
   return(exp_plan)
 }
@@ -196,13 +203,13 @@ load_metadata <- function(files=NULL, path=metadata_path, keyword='metadata', re
 # metadata_files: optional, defaults to NULL. If not specified, will be identified using find_metadata_files. Metadata files.
 # metadata_path: path to metadata files. Can specify or use default 'metadata_path'
 # metadata_keyword: optional, defaults to 'metadata'. Keyword to search for.
-# experiments: optional, defaults to unique experiments found in the metadata file (this requires that load_metadata has been run first). Can also be specified manually as a list.
+# experiments: optional, defaults to experiment_by_file. A list of filename-experiment name mappings.
 # recursive: optional, defaults to FALSE. If TRUE, searches recursively inside the directory specified.
 
 load_data <- function(tracking_data_files=NULL, tracking_data_path=data_path, data_keyword='combined_tracks',
                       experiment_plan_files=NULL, experiment_plan_path=exp_plan_path, exp_plan_keyword='exp_plan',
                       metadata_files_list=NULL, metadata_file_path=metadata_path, metadata_keyword='metadata',
-                      experiments=unique(metadata$experiment), recursive=FALSE) {
+                      experiments=experiment_by_file, recursive=FALSE) {
   
   # make sure paths exist
   if (!dir.exists(tracking_data_path)) {
