@@ -343,7 +343,7 @@ def show_tracks_timelapse(
     fig.text(
         0.5,
         image_height_fraction + (1 - image_height_fraction) / 2,
-        f"{Path(img_path).name} frames {frame_start}-{frame_end}",
+        f"{Path(img_path).name} frames {frame_start}-{frame_end} ({len(selected_ids)} selected {tracked_id_col}s)",
         ha="center",
         va="center",
         fontsize=11)
