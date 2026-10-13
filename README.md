@@ -1,5 +1,5 @@
 # LAP+Cellpose-SAM Cell Migration Analysis
-
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23345309.svg)](https://doi.org/10.5281/zenodo.23345309)
 ## Overview
 This project assembles a robust cell migration analysis pipeline that segments cells from *.tif* timelapse images using [Cellpose-SAM](https://github.com/wikk-chy/cellpose-SAM), tracks cells across timelapse frames using [LapTrack](https://github.com/yfukai/laptrack/), and analyses the resulting migration data in R. The workflow, which outputs a variety of static and animated visualisations, analyses a variety of characteristics of cell migration including measures of displacement, persistence (straightness), directional bias, and diffusivity (via ensemble lag-time mean squared displacement modelling). It also allows for comparison of observed migration behaviour to simulated Brownian and correlated random walks.
 
