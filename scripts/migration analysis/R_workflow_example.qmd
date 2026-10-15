@@ -25,7 +25,7 @@ Now specify parameters for the analysis and load the data.
 ```{r, specify parameters}
 #| echo: false
 
-# data: tracking data output from [insert script name here]
+# data: tracking data output from cell segmentation+tracking script
 # experiment plan: experimental design in the format provided
 # metadata: imaging metadata in the format provided
 
@@ -59,6 +59,7 @@ experiment_by_file <- c(
 mig_raw <- load_data()
 mig_raw
 ```
+
 If desired, simulated Brownian and correlated random walks can be simulated for comparison to the experimental tracking data.
 
 ```{r, simulations}
@@ -145,7 +146,8 @@ BN_tot <- bestNormalize(mig_features$tot_d)
 BN_tot
 
 # bestNormalize identified orderNorm (inverse-normal) as the best transformation
-#mig_features$tot_d_bc <- predict(BN_tot) # to use the transformation identified by bestNormalize
+# NB: because bestNormalize uses repeated cross-validation, it may give slightly different results each time it is run on the same data unless you set.seed first.
+#mig_features$tot_d_bc <- predict(BN_tot) # this will apply the transformation identified by bestNormalize
 mig_features$tot_d_inv <- RankNorm(mig_features$tot_d) # to apply inverse-normal transformation
 
 # try fitting a model with the transformed data and checking the assumptions
@@ -197,7 +199,6 @@ BN_max <- bestNormalize(mig_features$max_d)
 BN_max
 
 # bestNormalize identified orderNorm (inverse-normal) transformation as best
-# could also choose inverse-normal transformation here to match the other features
 mig_features$max_d_inv <- RankNorm(mig_features$max_d) # to apply inverse-normal transformation
 
 # try fitting a model with the transformed data and checking the assumptions
@@ -326,6 +327,7 @@ plot_pca_biplot_variables()
 # visualise samples relative to the PCs
 plot_pca_scatter(palette='sequential', labels=labels)
 ```
+
 If preferred, a PCA can be constructed using all trackwise features (excluding D and alpha, as they are modelled per-experiment).
 
 ```{r, PCA with just trackwise migration features}
