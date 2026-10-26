@@ -566,22 +566,45 @@ get_trackwise_features <- function(data=mig_filt) {
 # msd_coeffs: optional, defaults to NULL. If provided, merges coefficients of LMM fitted to MSD data by experiment (model_coeffs_by_experiment).
 
 summarise_migration_features <- function(feature_data=mig_features, msd_coeffs=NULL) {
-  mig_features_summ <- feature_data %>%
-    ungroup() %>%
-    group_by(experiment, condition) %>%
-    summarize(
-      avg_net_dx = mean(net_dx),           # mean net displacement over x
-      avg_net_dy = mean(net_dy),           # mean net displacement over y
-      avg_net_d = mean(net_d),             # mean net displacement
-      avg_tot_d = mean(tot_d),             # mean total path length
-      avg_max_d = mean(max_d),             # mean maximum distance from path start
-      avg_meand_index = mean(meand_index), # mean meandering index
-      avg_spd = mean(avg_spd)             # mean speed over time
+  if ((length(unique(feature_data$experiment)))==1) {
+    # if N=1, don't summarise by experiment
+    mig_features_summ <- feature_data %>%
+      ungroup() %>%
+      group_by(condition) %>%
+      summarize(
+        avg_net_dx = mean(net_dx),           # mean net displacement over x
+        avg_net_dy = mean(net_dy),           # mean net displacement over y
+        avg_net_d = mean(net_d),             # mean net displacement
+        avg_tot_d = mean(tot_d),             # mean total path length
+        avg_max_d = mean(max_d),             # mean maximum distance from path start
+        avg_meand_index = mean(meand_index), # mean meandering index
+        avg_spd = mean(avg_spd)             # mean speed over time
       )
-  
-  if (!missing(msd_coeffs)) {
-    # merge coefficients with other migration features by condition and experiment
-    mig_features_summ <- left_join(mig_features_summ, msd_coeffs, by=c('experiment', 'condition'))
+    
+    # if msd_coeffs is provided, summarise coeffs by condition and merge with other summarised migration features
+    if (!missing(msd_coeffs)) {
+      mig_features_summ <- left_join(mig_features_summ, msd_coeffs, by='condition')
+    }
+    
+  } else if ((length(unique(feature_data$experiment)))>1) {
+    # if N>1, summarise by experiment as well as condition
+    mig_features_summ <- feature_data %>%
+      ungroup() %>%
+      group_by(experiment, condition) %>%
+      summarize(
+        avg_net_dx = mean(net_dx),           # mean net displacement over x
+        avg_net_dy = mean(net_dy),           # mean net displacement over y
+        avg_net_d = mean(net_d),             # mean net displacement
+        avg_tot_d = mean(tot_d),             # mean total path length
+        avg_max_d = mean(max_d),             # mean maximum distance from path start
+        avg_meand_index = mean(meand_index), # mean meandering index
+        avg_spd = mean(avg_spd)             # mean speed over time
+      )
+    
+    # if msd_coeffs is provided, summarise coeffs by experiment and condition and merge with other summarised migration features
+    if (!missing(msd_coeffs)) {
+      mig_features_summ <- left_join(mig_features_summ, msd_coeffs, by=c('experiment', 'condition'))
+    }
   }
   
   return(mig_features_summ)
@@ -1379,28 +1402,40 @@ get_linear_mixed_model <- function(data=mig_features, feature, experiment = "exp
     termlabels = c('condition', paste0("(1 | ", experiment, ")")),
     response = feature)
   
-  # fit LM and LMM
-  lm_fit <- lm(fixed_formula, data = data)
-  lmm_fit <- lmer(mixed_formula, 
-                  data = data, 
-                  REML = FALSE, 
-                  control = lmerControl(check.conv.singular = 'ignore')
-  )
-  
-  # Likelihood-ratio test for the random effect
-  random_effect_test <- rand(lmm_fit)
-  p_value <- random_effect_test[["Pr(>Chisq)"]]
-  p_value <- p_value[!is.na(p_value)][1]
-  
-  if (!is.na(p_value) && p_value < 0.05) {
-    selected_model <- lmm_fit
-    selected_type <- "linear mixed model"
+  # if there are multiple experiments, fit an LM or LMM
+  if (length(unique(data$experiment))>1){  
+    # fit LM and LMM
+    lm_fit <- lm(fixed_formula, data = data)
+    lmm_fit <- lmer(mixed_formula, 
+                    data = data, 
+                    REML = FALSE, 
+                    control = lmerControl(check.conv.singular = 'ignore')
+    )
+    
+    # Likelihood-ratio test for the random effect
+    random_effect_test <- rand(lmm_fit)
+    p_value <- random_effect_test[["Pr(>Chisq)"]]
+    p_value <- p_value[!is.na(p_value)][1]
+    
+    if (!is.na(p_value) && p_value < 0.05) {
+      selected_model <- lmm_fit
+      selected_type <- "linear mixed model"
+    } else {
+      warning(paste0(
+        "The likelihood-ratio test did not support the use of the random effect. ",
+        "Returning a linear model for ", feature, ".\n"))
+      selected_model <- lm_fit
+      selected_type <- "linear model"
+    }
   } else {
-    warning(paste0(
-      "The likelihood-ratio test did not support the use of the random effect. ",
-      "Returning a linear model for ", feature, ".\n"))
+    # otherwise, if there is only one experiment, fit a linear model
+    warning(paste0("Returning a linear model for ", feature, " as there is only one unique experiment."))
+    lm_fit <- lm(fixed_formula, data = data)
+    lmm_fit <- NA
+    random_effect_test <- NA
     selected_model <- lm_fit
     selected_type <- "linear model"
+    p_value <- NA
   }
   
   return(
@@ -1556,7 +1591,7 @@ get_posthoc_comparisons <- function(model, contrasts_to_plot) {
 # feature: the migration feature to plot (name of the column in the data).
 # title: optional, defaults to NULL. Title to use for the plot.
 # y_label: optional, defaults to the feature name. Y-axis label.
-# contrasts_to_plot: treatment condition pairs to compare.
+# contrasts_to_plot: optional, defaults to an empty vector. Treatment condition pairs to compare. If not provided, posthoc comparisons will not be plotted.
 
 # NB: contrasts_to_plot must be in the format 'treatment1 - treatment2' (or a list of these strings)
 
@@ -1564,17 +1599,18 @@ make_feature_boxplot <- function(
     model, data=mig_features, labels=treatment_levels_filt,
     feature, title=NULL,
     y_label=feature,
-    contrasts_to_plot
+    contrasts_to_plot=c()
 ) {
   
   posthoc <- suppressMessages(get_posthoc_comparisons(model, contrasts_to_plot))
   
   # guard against empty comparisons
   if (nrow(posthoc$table) == 0) {
+    warning(paste0('Plotting ', feature, ' data without posthoc comparisons, as contrasts were not provided.'))
     boxplot <- ggplot(data, aes(x = condition, y = .data[[feature]])) +
       geom_boxplot() +
       scale_x_discrete(labels = labels) +
-      scale_y_continuous(expand = expansion(mult = c(0, 0.05))) +
+      scale_y_continuous(expand = expansion(mult = c(0.05, 0.05))) +
       labs(title = title, x = "Condition", y = y_label) +
       theme_classic() +
       theme(
@@ -1603,7 +1639,7 @@ make_feature_boxplot <- function(
       step_increase = 0.1,
       vjust = 0.1) +
     scale_x_discrete(labels = labels) +
-    scale_y_continuous(expand = expansion(mult = c(0, 0.05))) +
+    scale_y_continuous(expand = expansion(mult = c(0.05, 0.05))) +
     labs(title = title, x = "Condition", y = y_label) +
     theme_classic() +
     theme(
