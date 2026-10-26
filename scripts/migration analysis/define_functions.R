@@ -1230,7 +1230,7 @@ animate_tracks <- function(data=mig_filt,
 # labels: optional, defaults to treatment_levels_filt. Labels to use for each condition.
 # name: optional, defaults to 'msd_vs_time.png'. What to save the plot as.
 # path: optional, defaults to "../../figures". Where to save the plot.
-# palette: optional, defaults to NULL (discrete and non-sequential). Colour palette to use when plotting.
+# palette: optional, defaults to NULL (discrete and non-sequential). Colour palette to use when plotting. Other options are 'paired' and 'sequential'.
 # height: optional, defaults to 5. Plot height in inches.
 # width: optional, defaults to 8. Plot width in inches.
 
@@ -1271,7 +1271,7 @@ plot_MSD_vs_lag_time <- function(data=msd_ensemble, labels=treatment_levels_filt
   } else {
     # use discrete and non-sequential custom color palette
     discrete_palette <- c("#E69F00","#56B4E9","#009E73","#F0E442","#0072B2","#D55E00",
-                          "#CC79A7","#999999","#A6761D","#666666","#1B9E77","#7570B3")
+                          "#7570B3", "#CC79A7","#999999","#A6761D","#666666","#1B9E77")
     
     msd_vs_time_plot <- msd_vs_time_plot +
       scale_color_manual(values=discrete_palette, labels=labels)
@@ -1285,11 +1285,11 @@ plot_MSD_vs_lag_time <- function(data=msd_ensemble, labels=treatment_levels_filt
 
 
 #### define function to plot alpha
-## plot the anomalous diffusion exponent (alpha) with SEM
+## plot the anomalous diffusion exponent (alpha), with SEM if N>=3
 
 # data: optional, defaults to mig_filt. Normalised tracking data.
 # coeffs: optional, defaults to model_coeffs. Coefficients (including alpha) of fitted MSD models.
-# alpha_data: optional, defaults to alpha_summ_stats. Summary statistics for alpha.
+# alpha_data: optional, defaults to NULL. Summary statistics for alpha. If provided, error bars will be plotted.
 # labels: optional, defaults to treatment_levels_filt. Labels to use for each condition.
 # name: optional, defaults to 'alpha_plot.png'. What to save the plot as.
 # path: optional, defaults to "../../figures". Where to save the plot.
@@ -1297,42 +1297,61 @@ plot_MSD_vs_lag_time <- function(data=msd_ensemble, labels=treatment_levels_filt
 # width: optional, defaults to 8. Plot width in inches.
 
 plot_alpha <- function(data=mig_filt,
-                       coeffs=model_coeffs, alpha_data=alpha_summ_stats,
+                       coeffs=model_coeffs, alpha_data=NULL,
                        labels=treatment_levels_filt,
                        name='alpha_plot.png', path="../../figures",
                        height=4.5, width=8) {
   
-  # set appropriate y axis maximum for alpha bar chart
-  experiments <- unique(data$experiment)
-  if (length(experiments) > 1) {
-    ymax_alpha <- max(coeffs$alpha + alpha_data$se) + 0.1
-  } else {
+  if (is.null(alpha_data)) {
+    warning('Alpha summary stats not provided. Alpha will be plotted without error bars.')
+    
+    # set appropriate y axis maximum for alpha bar chart
     ymax_alpha <- max(coeffs$alpha) + 0.1
+    
+    # make bar chart of alpha for each treatment
+    alpha_plot <- coeffs  %>% 
+      ggplot(aes(x = condition, y = alpha)) +
+      geom_bar(stat = "identity", show.legend=FALSE, fill = NA, color = 'black') +
+      labs(y = "Anomalous Diffusion exponent (α)", x = NULL) +
+      scale_y_continuous(expand = c(0,0), limits=c(0,ymax_alpha), breaks = seq(0, ymax_alpha, by = 0.2))+
+      scale_x_discrete(labels=labels) +
+      theme_classic()+
+      geom_hline(yintercept=1, color='red', linetype='dashed', linewidth=1) +
+      theme(
+        axis.title=element_text(size=14, face="bold"),
+        axis.text.x=element_text(angle=45, hjust=1, size=11),
+        axis.text.y=element_text(size=11),
+        panel.border=element_rect(color='black', fill=NA, linewidth=1)
+      )
+    
+  } else {
+    # set appropriate y axis maximum for alpha bar chart
+    ymax_alpha <- max(coeffs$alpha + alpha_data$se) + 0.1
+    
+    coeffs <- left_join(coeffs, alpha_data, by='condition')
+    
+    # make bar chart of alpha for each treatment
+    alpha_plot <- coeffs  %>% 
+      ggplot(aes(x = condition, y = alpha)) +
+      geom_bar(stat = "identity", show.legend=FALSE, fill = NA, color = 'black') +
+      geom_errorbar(aes(
+        x=coeffs$condition, 
+        ymin=coeffs$alpha - coeffs$se,
+        ymax=coeffs$alpha + coeffs$se),
+        width=0.4
+      ) +
+      labs(y = "Anomalous Diffusion exponent (α)", x = NULL) +
+      scale_y_continuous(expand = c(0,0), limits=c(0,ymax_alpha), breaks = seq(0, ymax_alpha, by = 0.2))+
+      scale_x_discrete(labels=labels) +
+      theme_classic()+
+      geom_hline(yintercept=1, color='red', linetype='dashed', linewidth=1) +
+      theme(
+        axis.title=element_text(size=14, face="bold"),
+        axis.text.x=element_text(angle=45, hjust=1, size=11),
+        axis.text.y=element_text(size=11),
+        panel.border=element_rect(color='black', fill=NA, linewidth=1)
+      )
   }
-  
-  coeffs <- left_join(coeffs, alpha_data, by='condition')
-  
-  # make bar chart of alpha for each treatment
-  alpha_plot <- coeffs  %>% 
-    ggplot(aes(x = condition, y = alpha)) +
-    geom_bar(stat = "identity", show.legend=FALSE, fill = NA, color = 'black') +
-    geom_errorbar(aes(
-      x=coeffs$condition, 
-      ymin=coeffs$alpha - coeffs$se,
-      ymax=coeffs$alpha + coeffs$se),
-      width=0.4
-    ) +
-    labs(y = "Anomalous Diffusion exponent (α)", x = NULL) +
-    scale_y_continuous(expand = c(0,0), limits=c(0,ymax_alpha), breaks = seq(0, ymax_alpha, by = 0.2))+
-    scale_x_discrete(labels=labels) +
-    theme_classic()+
-    geom_hline(yintercept=1, color='red', linetype='dashed', linewidth=1) +
-    theme(
-      axis.title=element_text(size=14, face="bold"),
-      axis.text.x=element_text(angle=45, hjust=1, size=11),
-      axis.text.y=element_text(size=11),
-      panel.border=element_rect(color='black', fill=NA, linewidth=1)
-    )
   
   # save plot
   save_plot(plot=alpha_plot, save_as=name, save_path=path, plot_height=height, plot_width=width, plot_units='in')
@@ -1469,8 +1488,7 @@ check_model_assumptions <- function(linear_model, data=mig_features) {
   
   # Shapiro-Wilk test
   shapiro_result <- NULL
-  #shapiro_note <- NULL
-  
+
   if (length(residual_values) >= 3 && length(residual_values) <= 5000) {
     shapiro_result <- shapiro.test(residual_values)
     if (shapiro_result$p.value > 0.05) {
@@ -1481,22 +1499,18 @@ check_model_assumptions <- function(linear_model, data=mig_features) {
     warning(
       "Shapiro-Wilk test not applied because sample size is outside the valid range ",
       "(n must be between 3 and 5000). Interpret residual normality from the Q-Q plot and histogram instead.\n")
-    #shapiro_note <- "Shapiro-Wilk test not applied; normality assessed visually from a Q-Q plot/histogram."
   }
   
   # Levene's test
   levene_result <- NULL
-  #levene_note <- NULL
-  
+
   if (length(unique(condition_values)) > 1) {
     if (length(residual_values) < 10 || length(residual_values) > 5000) {
       warning(
         "Levene's test is less reliable when the sample size is very low or very high. ",
         "Use it as a supporting diagnostic; assess variance visually from the residuals-vs-fitted plot.")
       message("Levene's test was applied, but interpret with caution as sample size is extreme.")
-    } #else {
-      #message("Levene's test interpreted in the usual way.")
-    #}
+    }
     
     levene_result <- leveneTest(residual_values ~ condition_values)
     levene_p <- as.data.frame(levene_result)[1, "Pr(>F)"]
@@ -1509,7 +1523,6 @@ check_model_assumptions <- function(linear_model, data=mig_features) {
     }
   } else {
     levene_result <- "Levene's test not applied because only one condition level is present."
-    #levene_note <- "Levene's test not applied; only one condition level exists."
   }
   
   # arrange diagnostic plots panel
@@ -1540,9 +1553,7 @@ check_model_assumptions <- function(linear_model, data=mig_features) {
   return(
     list(
       `shapiro-wilk` = shapiro_result,
-      #`shapiro-note` = shapiro_note,
-      levene = levene_result#,
-      #`levene-note` = levene_note
+      levene = levene_result
       )
       )
 }
@@ -1872,7 +1883,7 @@ plot_pca_biplot_variables <- function(pca=pca_results,
 # labels: optional, defaults to treatment_levels_filt. Labels to use for each condition.
 # name: optional, defaults to "PCA_scatter.png". What to save the plot as.
 # path: optional, defaults to "../../figures". Where to save the plot.
-# palette: optional, defaults to NULL (discrete and non-sequential). Colour palette to use when plotting.
+# palette: optional, defaults to NULL (discrete and non-sequential). Colour palette to use when plotting. Other options are 'paired' and 'sequential'.
 # height: optional, defaults to 5. Figure height in inches.
 # width: optional, defaults to 7. Figure width in inches.
 
@@ -1930,7 +1941,7 @@ plot_pca_scatter <- function(pca=pca_results, labels = treatment_levels_filt,
   } else {
     # use discrete and non-sequential custom color palette
     discrete_palette <- c("#E69F00","#56B4E9","#009E73","#F0E442","#0072B2","#D55E00",
-                          "#CC79A7","#999999","#A6761D","#666666","#1B9E77","#7570B3")
+                          "#7570B3", "#CC79A7","#999999","#A6761D","#666666","#1B9E77")
     
     pca_scatterplot <- pca_scatterplot +
       scale_color_manual(values=discrete_palette, breaks = condition_order, labels=labels)
